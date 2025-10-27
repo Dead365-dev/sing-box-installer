@@ -274,6 +274,68 @@ fi
 
 printf "\033[31;1mAll actions performed here cannot be rolled back automatically.\033[0m\n"
 
+setup_singbox_auto_update() {
+    printf "\033[32;1mНастройка автоматического обновления конфигурации sing-box...\033[0m\n"
+
+    # Запрашиваем ссылку
+    while true; do
+        read -r -p "Введите ссылку на конфиг (пример: https://link.example.ru:8888/JpxXh1o67VQStfg_): " USER_LINK
+        if echo "$USER_LINK" | grep -qE '^https?://.+/.+$' && [ "${USER_LINK%/}" != "$USER_LINK" ]; then
+            break
+        else
+            echo "Некорректный формат. Пример: https://host:port/token"
+        fi
+    done
+
+    # Разбираем URL
+    BASE_URL="${USER_LINK%/*}"
+    TOKEN="${USER_LINK##*/}"
+    CONFIG_URL="$USER_LINK"
+    HASH_URL="$BASE_URL/hash/$TOKEN"
+
+    # Скачиваем шаблон
+    UPDATE_SCRIPT_URL="https://raw.githubusercontent.com/Dead365-dev/sing-box-installer/master/singbox-update.sh"
+    TARGET_SCRIPT="/etc/singbox-update.sh"
+
+    if ! wget -q -O "$TARGET_SCRIPT" "$UPDATE_SCRIPT_URL"; then
+        printf "\033[31;1mНе удалось скачать скрипт обновления.\033[0m\n"
+        return 1
+    fi
+
+    # Экранируем для sed
+    ESC_CONFIG=$(printf '%s\n' "$CONFIG_URL" | sed 's/[^^]/[&]/g; s/\^/\\^/g')
+    ESC_HASH=$(printf '%s\n' "$HASH_URL" | sed 's/[^^]/[&]/g; s/\^/\\^/g')
+
+    # Подставляем значения
+    sed -i "s|CONFIG_URL=.*|CONFIG_URL=\"$CONFIG_URL\"|" "$TARGET_SCRIPT"
+    sed -i "s|HASH_URL=.*|HASH_URL=\"$HASH_URL\"|" "$TARGET_SCRIPT"
+    sed -i "s|LOCAL_CONFIG=.*|LOCAL_CONFIG=\"/etc/sing-box/config.json\"|" "$TARGET_SCRIPT"
+    sed -i "s|SERVICE_NAME=.*|SERVICE_NAME=\"sing-box\"|" "$TARGET_SCRIPT"
+
+    # Адаптация под OpenWrt (без systemd)
+    sed -i 's|service "$SERVICE_NAME" restart|/etc/init.d/sing-box restart|g' "$TARGET_SCRIPT"
+
+    # Удаляем проверку на 'service'
+    sed -i '/for cmd in curl jq sha256sum service; do/,+4d' "$TARGET_SCRIPT"
+    sed -i '/^# === Проверка наличия зависимостей ===$/,/^done$/d' "$TARGET_SCRIPT"
+
+    # Вставляем совместимую проверку
+    sed -i "1i# === Проверка зависимостей (OpenWrt) ===\nfor cmd in curl jq sha256sum; do\n  if ! command -v \"\$cmd\" >/dev/null 2>&1; then\n    error \"Не установлена зависимость: \$cmd\"\n    exit 1\n  fi\ndone\n" "$TARGET_SCRIPT"
+
+    chmod +x "$TARGET_SCRIPT"
+
+    # Добавляем в cron (раз в час)
+    if ! crontab -l 2>/dev/null | grep -q "singbox-update"; then
+        crontab -l 2>/dev/null | { cat; echo "0 * * * * /etc/singbox-update.sh >> /var/log/singbox-update.log 2>&1"; } | crontab -
+        /etc/init.d/cron restart 2>/dev/null || true
+    fi
+
+    printf "\033[32;1mАвтообновление настроено!\033[0m\n"
+    printf "CONFIG_URL: %s\n" "$CONFIG_URL"
+    printf "HASH_URL:   %s\n" "$HASH_URL"
+    printf "Скрипт:     %s\n" "$TARGET_SCRIPT"
+}
+
 check_repo
 
 add_packages
@@ -294,7 +356,9 @@ add_dns_resolver
 
 add_getdomains
 
+setup_singbox_auto_update
+
 printf "\033[32;1mRestarting network...\033[0m\n"
 /etc/init.d/network restart
 
-printf "\033[32;1m✅ Setup complete! Remember to edit /etc/sing-box/config.json.\033[0m\n"
+printf "\033[32;1m✅ Всё готово!\033[0m\n"
