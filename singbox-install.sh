@@ -277,17 +277,22 @@ printf "\033[31;1mAll actions performed here cannot be rolled back automatically
 setup_singbox_auto_update() {
     printf "\033[32;1mНастройка автоматического обновления конфигурации sing-box...\033[0m\n"
 
-    # Запрашиваем ссылку
     while true; do
         read -r -p "Введите ссылку на конфиг (пример: https://link.example.ru:8888/JpxXh1o67VQStfg_): " USER_LINK
-        if echo "$USER_LINK" | grep -qE '^https?://.+/.+$' && [ "${USER_LINK%/}" != "$USER_LINK" ]; then
-            break
-        else
-            echo "Некорректный формат. Пример: https://host:port/token"
+
+        # Очистка от пробелов
+        USER_LINK="$(echo "$USER_LINK" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+        # Проверка формата и валидности порта
+        if echo "$USER_LINK" | grep -qE '^https://[^:/]+:[0-9]{1,5}/[^/]+$'; then
+            PORT=$(echo "$USER_LINK" | sed -n 's/.*:\([0-9]\{1,5\}\)\/.*/\1/p')
+            if [ -n "$PORT" ] && [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] 2>/dev/null; then
+                break
+            fi
         fi
+        echo "Некорректный формат. Пример: https://link.example.ru:8888/JpxXh1o67VQStfg_"
     done
 
-    # Разбираем URL
     BASE_URL="${USER_LINK%/*}"
     TOKEN="${USER_LINK##*/}"
     CONFIG_URL="$USER_LINK"
