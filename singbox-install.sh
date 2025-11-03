@@ -2,12 +2,6 @@
 
 #set -x
 
-# === Вспомогательные функции (должны быть первыми!) ===
-
-error() {
-    echo "$(date '+%F %T') [ERROR] $*" >&2
-    exit 1
-}
 
 check_repo() {
     printf "\033[32;1mChecking OpenWrt repo availability...\033[0m\n"
@@ -37,6 +31,35 @@ add_mark() {
         uci set network.@rule[-1].priority='100'
         uci set network.@rule[-1].lookup='vpn'
         uci commit network
+    fi
+}
+
+install_requirements() {
+    printf "\033[32;1mAutomatically install requirements...\033[0m\n"
+
+    if opkg list-installed | grep -q jq; then
+        echo "jq already installed"
+    else
+        AVAILABLE_SPACE=$(df / | awk 'NR>1 { print $4 }')
+        if [[ "$AVAILABLE_SPACE" -gt 2000 ]]; then
+            echo "Installing sing-box..."
+            opkg install jq
+        else
+            printf "\033[31;1mNot enough free space for jq. Installation aborted.\033[0m\n"
+            exit 1
+        fi
+    fi
+    if opkg list-installed | grep -q curl; then
+        echo "curl already installed"
+    else
+        AVAILABLE_SPACE=$(df / | awk 'NR>1 { print $4 }')
+        if [[ "$AVAILABLE_SPACE" -gt 2000 ]]; then
+            echo "Installing curl..."
+            opkg install curl
+        else
+            printf "\033[31;1mNot enough free space for curl. Installation aborted.\033[0m\n"
+            exit 1
+        fi
     fi
 }
 
@@ -257,14 +280,6 @@ EOF
     /etc/init.d/getdomains start
 }
 
-add_packages() {
-    if opkg list-installed | grep -q "^curl "; then
-        printf "\033[32;1mcurl already installed\033[0m\n"
-    else
-        printf "\033[32;1mInstalling curl...\033[0m\n"
-        opkg install curl
-    fi
-}
 
 # System Details
 MODEL=$(cat /tmp/sysinfo/model)
@@ -333,7 +348,7 @@ setup_singbox_auto_update() {
     sed -i '/^# === Проверка наличия зависимостей ===$/,/^done$/d' "$TARGET_SCRIPT"
 
     # Вставляем совместимую проверку
-    sed -i "1i# === Проверка зависимостей (OpenWrt) ===\nfor cmd in curl jq sha256sum; do\n  if ! command -v \"\$cmd\" >/dev/null 2>&1; then\n    error \"Не установлена зависимость: \$cmd\"\n    exit 1\n  fi\ndone\n" "$TARGET_SCRIPT"
+    #sed -i "1i# === Проверка зависимостей (OpenWrt) ===\nfor cmd in curl jq sha256sum; do\n  if ! command -v \"\$cmd\" >/dev/null 2>&1; then\n    error \"Не установлена зависимость: \$cmd\"\n    exit 1\n  fi\ndone\n" "$TARGET_SCRIPT"
 
     chmod +x "$TARGET_SCRIPT"
 
@@ -349,9 +364,10 @@ setup_singbox_auto_update() {
     printf "Скрипт:     %s\n" "$TARGET_SCRIPT"
 }
 
+
 check_repo
 
-add_packages
+install_requirements
 
 add_tunnel
 
