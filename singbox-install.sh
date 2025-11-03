@@ -314,8 +314,9 @@ setup_singbox_auto_update() {
     # Подставляем значения
     sed -i "s|CONFIG_URL=.*|CONFIG_URL=\"$CONFIG_URL\"|" "$TARGET_SCRIPT"
     sed -i "s|HASH_URL=.*|HASH_URL=\"$HASH_URL\"|" "$TARGET_SCRIPT"
-    sed -i "s|LOCAL_CONFIG=.*|LOCAL_CONFIG=\"/etc/sing-box/config.json\"|" "$TARGET_SCRIPT"
-    sed -i "s|SERVICE_NAME=.*|SERVICE_NAME=\"sing-box\"|" "$TARGET_SCRIPT"
+    # sed -i "s|LOCAL_CONFIG=.*|LOCAL_CONFIG=\"/etc/sing-box/config.json\"|" "$TARGET_SCRIPT"
+    # sed -i "s|SERVICE_NAME=.*|SERVICE_NAME=\"sing-box\"|" "$TARGET_SCRIPT"
+
 
     # Адаптация под OpenWrt (без systemd)
     sed -i 's|service "$SERVICE_NAME" restart|/etc/init.d/sing-box restart|g' "$TARGET_SCRIPT"
