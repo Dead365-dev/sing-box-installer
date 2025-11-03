@@ -354,7 +354,7 @@ setup_singbox_auto_update() {
 
     # Добавляем в cron (раз в час)
     if ! crontab -l 2>/dev/null | grep -q "singbox-update"; then
-        crontab -l 2>/dev/null | { cat; echo "0 * * * * /etc/singbox-update.sh >> /var/log/singbox-update.log 2>&1"; } | crontab -
+        crontab -l 2>/dev/null | { cat; echo "0 * * * * /etc/singbox-update.sh > /dev/null"; } | crontab -
         /etc/init.d/cron restart 2>/dev/null || true
     fi
 
@@ -389,5 +389,7 @@ setup_singbox_auto_update
 
 printf "\033[32;1mRestarting network...\033[0m\n"
 /etc/init.d/network restart
+
+/etc/singbox-update.sh
 
 printf "\033[32;1m✅ Всё готово!\033[0m\n"
