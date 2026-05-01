@@ -3,9 +3,79 @@
 #set -x
 
 
+# System Details
+MODEL=$(cat /tmp/sysinfo/model)
+source /etc/os-release
+printf "\033[34;1mModel: $MODEL\033[0m\n"
+printf "\033[34;1mVersion: $OPENWRT_RELEASE\033[0m\n"
+
+VERSION_ID=$(echo $VERSION | awk -F. '{print $1}')
+
+if [ "$VERSION_ID" -ne 23 ] && [ "$VERSION_ID" -ne 24 ] && [ "$VERSION_ID" -ne 25 ]; then
+    printf "\033[31;1mScript only supports OpenWrt 23.05, 24.10 and 25.x\033[0m\n"
+    exit 1
+fi
+
+# Detect package manager based on OpenWrt version
+PKGMGR=""
+if [ "$VERSION_ID" -eq 25 ]; then
+    PKGMGR="apk"
+    printf "\033[33;1mUsing APK package manager (OpenWrt 25.x)\033[0m\n"
+elif command -v opkg >/dev/null 2>&1; then
+    PKGMGR="opkg"
+    printf "\033[33;1mUsing OPKG package manager (OpenWrt 23.05/24.10)\033[0m\n"
+elif command -v apk >/dev/null 2>&1; then
+    PKGMGR="apk"
+    printf "\033[33;1mUsing APK package manager\033[0m\n"
+else
+    printf "\033[31;1mNo package manager found (opkg or apk)\033[0m\n"
+    exit 1
+fi
+
+# Wrapper functions for package manager operations
+pkg_update() {
+    if [ "$PKGMGR" = "apk" ]; then
+        apk update
+    else
+        opkg update
+    fi
+}
+
+pkg_install() {
+    if [ "$PKGMGR" = "apk" ]; then
+        apk add "$@"
+    else
+        opkg install "$@"
+    fi
+}
+
+pkg_remove() {
+    if [ "$PKGMGR" = "apk" ]; then
+        apk del "$@"
+    else
+        opkg remove "$@"
+    fi
+}
+
+pkg_download() {
+    if [ "$PKGMGR" = "apk" ]; then
+        apk fetch "$@"
+    else
+        opkg download "$@"
+    fi
+}
+
+pkg_is_installed() {
+    if [ "$PKGMGR" = "apk" ]; then
+        apk info -e "$1" >/dev/null 2>&1
+    else
+        opkg list-installed | grep -q "$1"
+    fi
+}
+
 check_repo() {
     printf "\033[32;1mChecking OpenWrt repo availability...\033[0m\n"
-    opkg update | grep -q "Failed to download" && printf "\033[31;1mopkg failed. Check internet or date. Command for force ntp sync: ntpd -p ptbtime1.ptb.de\033[0m\n" && exit 1
+    pkg_update 2>&1 | grep -q "Failed to download" && printf "\033[31;1m%s failed. Check internet or date. Command for force ntp sync: ntpd -p ptbtime1.ptb.de\033[0m\n" "$PKGMGR" && exit 1
 }
 
 route_vpn () {
@@ -37,25 +107,25 @@ add_mark() {
 install_requirements() {
     printf "\033[32;1mAutomatically install requirements...\033[0m\n"
 
-    if opkg list-installed | grep -q jq; then
+    if pkg_is_installed jq; then
         echo "jq already installed"
     else
         AVAILABLE_SPACE=$(df / | awk 'NR>1 { print $4 }')
         if [[ "$AVAILABLE_SPACE" -gt 2000 ]]; then
-            echo "Installing sing-box..."
-            opkg install jq
+            echo "Installing jq..."
+            pkg_install jq
         else
             printf "\033[31;1mNot enough free space for jq. Installation aborted.\033[0m\n"
             exit 1
         fi
     fi
-    if opkg list-installed | grep -q curl; then
+    if pkg_is_installed curl; then
         echo "curl already installed"
     else
         AVAILABLE_SPACE=$(df / | awk 'NR>1 { print $4 }')
         if [[ "$AVAILABLE_SPACE" -gt 2000 ]]; then
             echo "Installing curl..."
-            opkg install curl
+            pkg_install curl
         else
             printf "\033[31;1mNot enough free space for curl. Installation aborted.\033[0m\n"
             exit 1
@@ -67,13 +137,13 @@ add_tunnel() {
     TUNNEL=singbox
     printf "\033[32;1mAutomatically configuring Sing-box...\033[0m\n"
 
-    if opkg list-installed | grep -q sing-box; then
+    if pkg_is_installed sing-box; then
         echo "Sing-box already installed"
     else
         AVAILABLE_SPACE=$(df / | awk 'NR>1 { print $4 }')
         if [[ "$AVAILABLE_SPACE" -gt 2000 ]]; then
             echo "Installing sing-box..."
-            opkg install sing-box
+            pkg_install sing-box
         else
             printf "\033[31;1mNot enough free space for sing-box. Installation aborted.\033[0m\n"
             exit 1
@@ -194,12 +264,12 @@ add_set() {
 }
 
 dnsmasqfull() {
-    if opkg list-installed | grep -q dnsmasq-full; then
+    if pkg_is_installed dnsmasq-full; then
         printf "\033[32;1mdnsmasq-full already installed\033[0m\n"
     else
         printf "\033[32;1mInstalling dnsmasq-full...\033[0m\n"
-        cd /tmp/ && opkg download dnsmasq-full
-        opkg remove dnsmasq && opkg install dnsmasq-full --cache /tmp/
+        cd /tmp/ && pkg_download dnsmasq-full
+        pkg_remove dnsmasq && pkg_install dnsmasq-full
         [ -f /etc/config/dhcp-opkg ] && cp /etc/config/dhcp /etc/config/dhcp-old && mv /etc/config/dhcp-opkg /etc/config/dhcp
     fi
 }
@@ -217,10 +287,10 @@ dnsmasqconfdir() {
 add_dns_resolver() {
     printf "\033[32;1mInstalling and configuring DNSCrypt2...\033[0m\n"
 
-    if opkg list-installed | grep -q dnscrypt-proxy2; then
+    if pkg_is_installed dnscrypt-proxy2; then
         printf "\033[32;1mDNSCrypt2 already installed\033[0m\n"
     else
-        opkg install dnscrypt-proxy2
+        pkg_install dnscrypt-proxy2
         if grep -q "# server_names" /etc/dnscrypt-proxy2/dnscrypt-proxy.toml; then
             sed -i "s/^# server_names =.*/server_names = ['google', 'cloudflare', 'scaleway-fr', 'yandex']/g" /etc/dnscrypt-proxy2/dnscrypt-proxy.toml
         fi
@@ -280,19 +350,6 @@ EOF
     /etc/init.d/getdomains start
 }
 
-
-# System Details
-MODEL=$(cat /tmp/sysinfo/model)
-source /etc/os-release
-printf "\033[34;1mModel: $MODEL\033[0m\n"
-printf "\033[34;1mVersion: $OPENWRT_RELEASE\033[0m\n"
-
-VERSION_ID=$(echo $VERSION | awk -F. '{print $1}')
-
-if [ "$VERSION_ID" -ne 23 ] && [ "$VERSION_ID" -ne 24 ] && [ "$VERSION_ID" -ne 25 ]; then
-    printf "\033[31;1mScript only supports OpenWrt 23.05, 24.10 and 25.x\033[0m\n"
-    exit 1
-fi
 
 printf "\033[31;1mAll actions performed here cannot be rolled back automatically.\033[0m\n"
 
